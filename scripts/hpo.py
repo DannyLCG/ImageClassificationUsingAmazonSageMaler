@@ -47,8 +47,7 @@ def test(model, test_loader, loss_criterion):
     # Calculate avg test loss
     test_loss /= len(test_loader.dataset)
     # Log testing metrics
-    logger.info(f"Test Average Loss: {test_loss:.4f},
-                Accuracy: {correct}\{len(test_loader.dataset)} ({100.0 * correct / len(test_loader.dataset)}%)\n")
+    logger.info(f"Test Average Loss: {test_loss:.4f}, Accuracy: {correct}/{len(test_loader.dataset)} ({100.0 * correct / len(test_loader.dataset)}%)\n")
 
 def train(model, train_loader, val_loader, criterion, optimizer, epochs, device):
     '''Define training loop, return training and evaluation metrics.
@@ -106,7 +105,7 @@ def train(model, train_loader, val_loader, criterion, optimizer, epochs, device)
 
     logger.info(f"Finished training for {epochs}s...")
 
-    
+
 def net(num_classes, device):
     '''Instance the EfficientNet_b4 model'''
     model = models.efficientnet_b4(pretrained=True)
@@ -123,13 +122,29 @@ def net(num_classes, device):
 
     return model
 
+def read_images(file_path):
+    '''Function to read image data from a HDF5 file.
+    Params:
+        file_path: str, the file path to the HDF5 file.
+        
+    return: dict, a dictionary in the form of {Image ID: numpy array}"'''
+    with h5py.File(file_path, 'r') as file:
+        ids_list = list(file.keys())
+        images = {}
+        for img_id in tqdm(ids_list):
+            # Extract the image data
+            image_data = file[img_id][()] #retrieve the entire data from each dataset
+            image = Image.open(io.BytesIO(image_data))
+            images[img_id] = np.array(image)
+
+    return images
 
 def create_data_loaders(data, batch_size):
     '''
     This is an optional function that you may or may not need to implement
     depending on whether you need to use data loaders or not
     '''
-    pass
+
 
 def main(args):
     '''
