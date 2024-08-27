@@ -1,25 +1,91 @@
-#TODO: Import your dependencies.
-#For instance, below are some dependencies you might need if you are using Pytorch
+import logging
+import os
+import sys
+
+import pandas as pd
 import numpy as np
+from PIL import Image
+import h5py
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader, Dataset
 import torchvision
 import torchvision.models as models
 import torchvision.transforms as transforms
 
 import argparse
+from tqdm import tqdm
 
+from smdebug.pytorch import get_hook
+from smdebug.pytorch import modes
 
-#TODO: Import dependencies for Debugging andd Profiling
+# Set logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.StreamHandler(sys.stdout))
 
-def test(model, test_loader):
+hook = get_hook(create_if_not_exists=True)
+class CustomDataset(Dataset):
+    # https://pytorch.org/tutorials/beginner/basics/data_tutorial.html
+    def __init__(self, images_dict, labels_dict=None, transform=None):
+        self.images_dict = images_dict
+        self.labels_dict = labels_dict
+        self.image_ids = list(images_dict.keys)
+        self.transform = transform
+
+    def __len__(self):
+        
+        return len(self.image_ids)
+    
+    def __getitem__(self, index):
+        image_id = self.image_ids[index]
+        image = self.images_dict[image_id]
+
+        # Transform np array to PIL image
+        image = Image.fromarray(image)
+
+        # Apply any requires transformations if any
+        if self.transform:
+            image = self.transform(image)
+
+        if self.labels_dict is not None:
+            label = self.labels_dict.get(image_id, None)
+            if label is None:
+                raise ValueError(f"Label not found for image ID: {image_id}")
+            return image, label
+        else:
+            return image
+        
+def test(model, test_loader, loss_criterion):
+    '''Define testing loop, return the test accuray/loss of the model.
+    Remember to include any debugging/profiling hooks that you might need
     '''
-    TODO: Complete this function that can take a model and a 
-          testing data loader and will get the test accuray/loss of the model
-          Remember to include any debugging/profiling hooks that you might need
-    '''
-    pass
+    logger.info("Testing started.")
+    # Set model to test mode
+    model.eval()
+    test_loss = 0
+    correct = 0
+
+    # With model set to test mode, iterate through data
+    with torch.no_grad():
+        #1 Loop through data
+        for (data, target) in test_loader:
+            # 2 Forward pass
+            preds = model(data)
+            #3. Compute loss
+            loss = loss_criterion(preds, target)
+            test_loss += loss.item()
+
+            # Count the number of correct predictions
+            # Get the index of the maximum probability class
+            pred = preds.max(1, keepdim=True)[1]
+            correct += pred.eq(target.view_as(pred)).sum().item()
+
+    # Calculate avg test loss
+    test_loss /= len(test_loader.dataset)
+    # Log testing metrics
+    logger.info(f"Test loss: {test_loss:.4f}, Accuracy: {correct}/{len(test_loader.dataset)} ({100.0 * correct / len(test_loader.dataset)}%)\n")
 
 def train(model, train_loader, criterion, optimizer):
     '''
