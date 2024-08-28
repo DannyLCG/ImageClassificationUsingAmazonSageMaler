@@ -1,5 +1,5 @@
 '''This scrip serves as entrypoint to perform Hyperparameter Optimization using SageMaker's Hyperprameter Tuner.
-Here we create an instance of ResNet50 and define the trainig and testing loop as well as data loaders from S3.'''
+Here we create an instance of EfficientNet_b4 and define the trainig and testing loop as well as data loaders from S3.'''
 import logging
 import io
 import os
@@ -30,7 +30,7 @@ class CustomDataset(Dataset):
     def __init__(self, images_dict, labels_dict=None, transform=None):
         self.images_dict = images_dict
         self.labels_dict = labels_dict
-        self.image_ids = list(images_dict.keys)
+        self.image_ids = list(images_dict.keys())
         self.transform = transform
 
     def __len__(self):
@@ -56,7 +56,7 @@ class CustomDataset(Dataset):
         else:
             return image
 
-def test(model, test_loader, loss_criterion, device):
+def test(model, test_loader, device):
     '''Define testing loop, return the test accuray/loss of the model.
     Remember to include any debugging/profiling hooks that you might need
     '''
@@ -68,25 +68,18 @@ def test(model, test_loader, loss_criterion, device):
 
     # With model set to test mode, iterate through data
     with torch.no_grad():
-        # Loop through data
-        for data, target in test_loader:
+        # loop through data
+        for data in test_loader:
             # Move data to device
-            data, target = data.to(device), target.to(device)
-            # Forward pass
+            data = data.to(device)
+            # Make predictions for the test data
             preds = model(data)
-            #3. Compute loss
-            loss = loss_criterion(preds, target)
-            test_loss += loss.item()
-
-            # Count the number of correct predictions
-            # Get the index of the maximum probability class
-            pred = preds.max(1, keepdim=True)[1]
-            correct += pred.eq(target.view_as(pred)).sum().item()
-
-    # Calculate avg test loss
-    test_loss /= len(test_loader.dataset)
-    # Log testing metrics
-    logger.info(f"Test loss: {test_loss:.4f}, Accuracy: {correct}/{len(test_loader.dataset)} ({100.0 * correct / len(test_loader.dataset)}%)\n")
+            _, prediction = torch.max(preds, 1) # Extract indices/labels
+            # Convert to numpy
+            prediction = prediction.cpu().numpy() # Leave as array if further operations are needed
+    
+    # Log predictions
+    logger.info(f"Predicted classes for the test data: {prediction.tolist()}")
 
 def train(model, train_loader, val_loader, criterion, optimizer, epochs, device):
     '''Define training loop, return training and evaluation metrics.
@@ -99,6 +92,8 @@ def train(model, train_loader, val_loader, criterion, optimizer, epochs, device)
         # Set model to training mode
         model.train()
         train_loss = 0
+        correct_train, total_train = 0, 0
+    
         # 1. Loop through dataset
         for data, target in train_loader:
             # Move data to device
@@ -117,14 +112,22 @@ def train(model, train_loader, val_loader, criterion, optimizer, epochs, device)
             # Update training loss/epoch
             train_loss += loss.item()
 
+            # Calculate number of correct predictions
+            _, prediction = torch.max(preds, 1) # Get the index of the max log, which corresponds to the label
+            correct_train += (prediction == target).sum().item()
+            total_train += target.size(0)
+
         # Log training metrics
         train_loss /= len(train_loader.dataset)
-        logger.info(f"Epoch: {epoch}/{epochs}, Training Loss: {train_loss:.4f}")
+        train_accuracy = correct_train / total_train
+        logger.info(f"Epoch: {epoch}/{epochs}, Training Loss: {train_loss:.4f}, Training Accuracy: {train_accuracy:.2f}")
 
         # Perform validation
+        logger.info("Validation loop started")
         # Set model to evaluation mode
         model.eval()
         val_loss = 0
+        correct_val, total_val = 0, 0
 
         with torch.no_grad():
             #1. Loop through data
@@ -138,23 +141,30 @@ def train(model, train_loader, val_loader, criterion, optimizer, epochs, device)
                 # Update validation loss
                 val_loss += loss.item()
 
+                # Calculate accuracy
+                _, prediction = torch.max(preds, 1) # Get the index of the max log, which corresponds to the label
+                correct_val += (prediction == target).sum().item()
+                total_val += target.size(0)
+
             # Log validation metrics
             val_loss /= len(val_loader.dataset)
-            logger.info(f"Epoch {epoch}/{epochs}, Validation Loss: {val_loss:.4f}")
+            val_accuracy = correct_val / total_val
+            logger.info(f"Epoch {epoch}/{epochs}, Validation Accuracy: {val_accuracy:.2f}")
+            logger.info(f"Validation Loss: {val_loss:.4f}")
 
     logger.info(f"Finished training for {epochs}s...")
 
 
 def net(num_classes, device):
     '''Instance the EfficientNet_b4 model'''
-    model = models.efficientnet_b4(pretrained=True)
+    model = models.resnet50(pretrained=True)
     # Freeze the network
     for param in model.parameters():
         param.requires_grad = False
 
     # Add a new FC layer. Newly constructed modules have 'requires_grad=True' by default
-    num_feats = model.classifier[1].in_features
-    model.classifier[1] = torch.nn.Linear(num_feats, num_classes)
+    num_feats = model.fc.in_features
+    model.fc = torch.nn.Linear(num_feats, 2)
 
     # Move model to available device
     model.to(device)
@@ -193,8 +203,14 @@ def load_data(hdf5_path, csv_path=None):
     logger.info("Started to load data from files...")
 
     with h5py.File(hdf5_path, 'r') as hdf5_file:
-        images_dict = {key: np.array(hdf5_file[key][()]) for key in hdf5_file.keys()}
+        keys = list(hdf5_file.keys())
+        images_dict = {}
 
+        for key in keys:
+            image_data = hdf5_file[key][()]
+            image = Image.open(io.BytesIO(image_data))
+            images_dict[key] = np.array(image)
+            
     labels_dict = None
 
     # Condition to handle the test data
@@ -248,7 +264,7 @@ def main(args):
     model = net(args.num_classes, args.device) 
 
     # Def model configs
-    loss_criterion = nn.BCEWithLogitsLoss() #This will update the activation function to a sigmoid activation
+    loss_criterion = nn.CrossEntropyLoss() #This will update the activation function to a sigmoid activation
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
 
     # load data
@@ -276,7 +292,7 @@ def main(args):
     train(model, train_loader, val_loader, loss_criterion, optimizer, args.epochs, args.device)
     
     # Test the model to see its accuracy
-    test(model, test_loader, loss_criterion)
+    test(model, test_loader, args.device)
     
     # Save the model
     model_path = os.path.join(args.model_path, "model.pth")
