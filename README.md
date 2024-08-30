@@ -35,9 +35,9 @@ The explored hyperparameter spaces are:
 - Batch size: (64, 128)
 - Epochs: (5, 10)
 
-![We launched 2 HPO jobs with 2 parallel jobs each.](images\HPO1.png)
-![](images\HPO2.png)
-![Best hyperparameters from our 4 HPO jobs.](images\logs_metrics.png)
+![We launched 2 HPO jobs with 2 parallel jobs each.](images/HPO1.png)
+![](images/HPO2.png)
+![Best hyperparameters from our 4 HPO jobs.](images/logs_metrics.png)
 
 ## Debugging and Profiling
 We trained our model with the best hyperparameters from the last HPO training jobs and added hooks to log performance and system usage. 
@@ -71,7 +71,7 @@ rules = [
 ### Results
 
 As we can see, the training loss and accuracy were successfully logged and can be visualized in CloudWatch...
-![Best hyperparameters from our 4 HPO jobs.](images\logs_hyperparams.png)
+![Best hyperparameters from our 4 HPO jobs.](images/logs_hyperparams.png)
 
 GPU utilization analysis:
 
